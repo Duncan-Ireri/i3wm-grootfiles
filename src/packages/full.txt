@@ -1,7 +1,6 @@
 # Development Tools
 intellij-idea-community-edition
 pycharm-community-edition
-jdk8-openjdk
 jdk17-openjdk
 jdk21-openjdk
 
@@ -11,10 +10,6 @@ gimp
 shotcut
 qt6-multimedia-ffmpeg
 yt-dlp
-
-# Gaming
-steam
-prismlauncher
 
 # More GNOME Applications
 gnome-calendar

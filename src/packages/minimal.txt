@@ -18,13 +18,6 @@ noto-fonts-emoji
 noto-fonts-cjk
 noto-fonts-extra
 
-# File Management
-nemo
-nemo-audio-tab
-nemo-fileroller
-nemo-image-converter
-nemo-share
-
 # Audio
 pipewire
 pipewire-alsa

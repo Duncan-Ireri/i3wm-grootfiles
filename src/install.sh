@@ -1182,10 +1182,6 @@ copyConfigs() {
     chmod +x "$HOME/.config/polybar/launch.sh" 2>/dev/null || true
     chmod +x "$HOME/.config/rofi/scripts/"* 2>/dev/null || true
     
-    # Configure Nemo
-    gsettings set org.cinnamon.desktop.default-applications.terminal exec alacritty 2>/dev/null || true
-    gsettings set org.nemo.icon-view default-zoom-level 'larger' 2>/dev/null || true
-    
     # Update browser keybinding
     if [ ${#selected_browsers[@]} -gt 0 ]; then
         local first_browser="${selected_browsers[0]}"

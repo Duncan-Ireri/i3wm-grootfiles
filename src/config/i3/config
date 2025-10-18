@@ -67,8 +67,8 @@ client.background        $base
 font pango:JetBrains Mono Nerd Font 12
 
 default_border pixel 0
-gaps inner 15px
-gaps outer 15px
+gaps inner 5px
+gaps outer 5px
 smart_gaps inverse_outer
 
 for_window [class="org.gnome.FileRoller"] floating enable
