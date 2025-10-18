@@ -418,6 +418,8 @@ installStandardPackages() {
         git-lfs
         
         # Git tools
+		zellij
+		github-cli
         lazygit
         
         # Build tools
