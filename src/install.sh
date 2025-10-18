@@ -98,19 +98,23 @@ multi_select() {
     local options=("$@")
     local selected=()
     local cursor=0
-    local key=""
     
+    # Initialize selected array
     for i in "${!options[@]}"; do
         selected[$i]=0
     done
+    
+    # Save terminal settings
+    local old_tty_settings=$(stty -g)
     
     while true; do
         clear
         print_header
         echo -e "${cyan}${title}${reset}"
-        echo -e "${gray}Use ↑/↓ arrows, SPACE to select, ENTER to confirm${reset}"
+        echo -e "${gray}Use ↑/↓ or k/j, SPACE to select, ENTER to confirm, q to skip${reset}"
         echo -e ""
         
+        # Display options
         for i in "${!options[@]}"; do
             if [ $i -eq $cursor ]; then
                 if [ ${selected[$i]} -eq 1 ]; then
@@ -127,27 +131,65 @@ multi_select() {
             fi
         done
         
-        read -rsn1 key
+        # Read a single character
+        IFS= read -rsn1 key 2>/dev/null
         
+        # Handle different key inputs
         case "$key" in
-            $'\x1b')
-                read -rsn2 key
+            $'\x1b')  # ESC sequence (arrow keys)
+                # Read the next two characters
+                read -rsn2 -t 0.1 key 2>/dev/null
                 case "$key" in
-                    '[A') ((cursor--)); [ $cursor -lt 0 ] && cursor=$((${#options[@]} - 1)) ;;
-                    '[B') ((cursor++)); [ $cursor -ge ${#options[@]} ] && cursor=0 ;;
+                    '[A'|'[D')  # Up arrow or Left arrow
+                        ((cursor--))
+                        [ $cursor -lt 0 ] && cursor=$((${#options[@]} - 1))
+                        ;;
+                    '[B'|'[C')  # Down arrow or Right arrow
+                        ((cursor++))
+                        [ $cursor -ge ${#options[@]} ] && cursor=0
+                        ;;
                 esac
                 ;;
-            ' ')
+            'k'|'K')  # Vim-style up
+                ((cursor--))
+                [ $cursor -lt 0 ] && cursor=$((${#options[@]} - 1))
+                ;;
+            'j'|'J')  # Vim-style down
+                ((cursor++))
+                [ $cursor -ge ${#options[@]} ] && cursor=0
+                ;;
+            ' ')  # Space to toggle selection
                 if [ ${selected[$cursor]} -eq 1 ]; then
                     selected[$cursor]=0
                 else
                     selected[$cursor]=1
                 fi
                 ;;
-            '') break ;;
+            'a'|'A')  # Select all
+                for i in "${!options[@]}"; do
+                    selected[$i]=1
+                done
+                ;;
+            'n'|'N')  # Select none
+                for i in "${!options[@]}"; do
+                    selected[$i]=0
+                done
+                ;;
+            'q'|'Q')  # Skip/Quit without selection
+                REPLY=()
+                stty "$old_tty_settings"
+                return 0
+                ;;
+            '')  # Enter to confirm
+                break
+                ;;
         esac
     done
     
+    # Restore terminal settings
+    stty "$old_tty_settings"
+    
+    # Build result array
     REPLY=()
     for i in "${!options[@]}"; do
         if [ ${selected[$i]} -eq 1 ]; then
@@ -232,6 +274,44 @@ EOF
     done
 }
 
+numbered_select() {
+    local title="$1"
+    shift
+    local options=("$@")
+    
+    clear
+    print_header
+    echo -e "${cyan}${title}${reset}"
+    echo -e "${gray}Enter numbers separated by spaces (e.g., 1 3 5) or 'all' or 'none'${reset}"
+    echo -e ""
+    
+    for i in "${!options[@]}"; do
+        echo -e "  $((i+1))) ${options[$i]}"
+    done
+    
+    echo -e ""
+    read -rp "Your selection: " input
+    
+    REPLY=()
+    
+    case "$input" in
+        "all"|"ALL"|"a"|"A")
+            REPLY=("${options[@]}")
+            ;;
+        "none"|"NONE"|"n"|"N"|"")
+            REPLY=()
+            ;;
+        *)
+            for num in $input; do
+                if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#options[@]} ]; then
+                    REPLY+=("${options[$((num-1))]}")
+                fi
+            done
+            ;;
+    esac
+}
+
+# Modified function calls to use numbered_select as fallback
 chooseBrowsers() {
     if [ "$edition" = "0" ]; then
         selected_browsers=("Chromium")
@@ -239,7 +319,13 @@ chooseBrowsers() {
     fi
     
     local browser_options=("Brave" "Firefox" "Google Chrome" "Chromium")
-    multi_select "Select browsers (at least one):" "${browser_options[@]}"
+    
+    # Try multi_select, fallback to numbered_select
+    multi_select "Select browsers (at least one):" "${browser_options[@]}" 2>/dev/null || {
+        log_warn "Multi-select failed, using numbered selection"
+        numbered_select "Select browsers (at least one):" "${browser_options[@]}"
+    }
+    
     selected_browsers=("${REPLY[@]}")
     
     if [ ${#selected_browsers[@]} -eq 0 ]; then
@@ -262,11 +348,16 @@ chooseDevTools() {
         "Insomnia"
         "DBeaver"
         "GitKraken"
-		"sublime-text-4"
-		"ttf-jetbrains-mono"
+        "Sublime Text 4"
+        "JetBrains Mono Font"
     )
     
-    multi_select "Select development tools:" "${dev_options[@]}"
+    # Try multi_select, fallback to numbered_select
+    multi_select "Select development tools:" "${dev_options[@]}" 2>/dev/null || {
+        log_warn "Multi-select failed, using numbered selection"
+        numbered_select "Select development tools:" "${dev_options[@]}"
+    }
+    
     selected_dev_tools=("${REPLY[@]}")
 }
 
@@ -285,7 +376,12 @@ chooseExtras() {
         "VLC"
     )
     
-    multi_select "Select additional applications:" "${extra_options[@]}"
+    # Try multi_select, fallback to numbered_select
+    multi_select "Select additional applications:" "${extra_options[@]}" 2>/dev/null || {
+        log_warn "Multi-select failed, using numbered selection"
+        numbered_select "Select additional applications:" "${extra_options[@]}"
+    }
+    
     selected_extras=("${REPLY[@]}")
 }
 
@@ -345,16 +441,69 @@ installEssentials() {
     log_info "Essential packages installed"
 }
 
+handleXorgConflicts() {
+    print_header
+    log_info "Checking for Xorg package conflicts..."
+    
+    # Check if any -git versions of xorg-server are installed
+    local git_packages=$(pacman -Q | grep -E 'xorg-server.*-git' | awk '{print $1}')
+    
+    if [ -n "$git_packages" ]; then
+        echo ""
+        log_warn "Found conflicting xorg-server-git packages:"
+        echo "$git_packages" | while read -r pkg; do
+            echo "  • $pkg"
+        done
+        echo ""
+        echo "These conflict with the standard xorg packages."
+        echo ""
+        echo "Options:"
+        echo "  1) Remove -git versions and install standard xorg (Recommended)"
+        echo "  2) Keep -git versions and skip standard xorg installation"
+        echo "  3) Abort installation"
+        echo ""
+        
+        while true; do
+            read -rp "Your choice [1-3]: " choice
+            case "$choice" in
+                1)
+                    log_info "Removing xorg-server-git packages..."
+                    echo "$git_packages" | xargs sudo pacman -Rdd --noconfirm 2>&1 | tee -a install.log || {
+                        log_error "Failed to remove some -git packages"
+                    }
+                    return 0
+                    ;;
+                2)
+                    log_warn "Keeping -git versions, will skip standard xorg installation"
+                    return 1
+                    ;;
+                3)
+                    exitScript "Installation aborted by user"
+                    ;;
+                *)
+                    echo -e "${red}Invalid choice${reset}"
+                    ;;
+            esac
+        done
+    fi
+    
+    return 0
+}
+
+# Modified installMinimalPackages function
 installMinimalPackages() {
     print_header
     log_info "Installing minimal system packages..."
     
+    # Handle xorg conflicts before installation
+    local install_xorg=true
+    if ! handleXorgConflicts; then
+        install_xorg=false
+    fi
+    
     local packages=(
         # Window Manager Core
         i3-wm i3status i3lock polybar rofi dunst
-        
-        # Display
-        xorg xorg-xinit picom nitrogen
         
         # Login Manager
         sddm
@@ -392,11 +541,25 @@ installMinimalPackages() {
         # Basic productivity
         gedit
 
-		# Font Config (fixes font rendering issues)
-		fontconfig
-		noto-fonts-emoji
-		noto-color-emoji-fontconfig
+        # Font Config (fixes font rendering issues)
+        fontconfig
+        noto-fonts-emoji
+        noto-color-emoji-fontconfig
     )
+    
+    # Add display packages if we're installing standard xorg
+    if [ "$install_xorg" = true ]; then
+        packages+=(
+            # Display
+            xorg-xinit picom nitrogen xorg-xrandr xorg-xset xorg-xprop
+        )
+    else
+        # Install minimal xorg components that shouldn't conflict
+        packages+=(
+            xorg-xinit picom nitrogen
+            xorg-xrandr xorg-xset xorg-xprop
+        )
+    fi
     
     safe_install_pacman "${packages[@]}"
     log_info "Minimal packages installed"
@@ -448,13 +611,11 @@ installFullPackages() {
         gimp inkscape
         
         # Video
-        vlc kdenlive shotcut
+        vlc kdenlive
         
         # Office
         libreoffice-fresh
         
-        # Gaming (check for Steam vulkan requirements separately)
-        lutris
     )
     
     safe_install_pacman "${packages[@]}"
@@ -605,26 +766,43 @@ setupNvm() {
     print_header
     log_info "Installing NVM (Node Version Manager)..."
     
+    # Temporarily disable unbound variable checking for NVM
+    set +u
+    
     if [ ! -d "$HOME/.nvm" ]; then
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh 2>&1 | bash | tee -a install.log || {
             log_error "Failed to install NVM"
+            set -u  # Re-enable before returning
             return
         }
     fi
     
     export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    
+    # Source NVM with error handling
+    if [ -s "$NVM_DIR/nvm.sh" ]; then
+        \. "$NVM_DIR/nvm.sh"
+    else
+        log_error "NVM script not found"
+        set -u  # Re-enable before returning
+        return
+    fi
     
     log_info "Installing Node.js LTS..."
     nvm install --lts 2>&1 | tee -a install.log || {
         log_error "Failed to install Node.js"
+        set -u  # Re-enable before returning
         return
     }
     
-    nvm use --lts
-    nvm alias default 'lts/*'
+    nvm use --lts 2>/dev/null || true
+    nvm alias default 'lts/*' 2>/dev/null || true
     
-    log_info "Node.js $(node --version 2>/dev/null || echo 'installation attempted') configured"
+    # Re-enable unbound variable checking
+    set -u
+    
+    local node_version=$(node --version 2>/dev/null || echo "unknown")
+    log_info "Node.js ${node_version} configured"
 }
 
 setupPython() {
